@@ -58,24 +58,33 @@ function parseSection(text){
     res.push(mm?{authors,year,title:mm[1].trim(),journal:mm[2].trim(),vol:mm[3],pages:mm[4]}:{authors,year,title:rest.replace(/\.$/,"")+".",journal:"",vol:"",pages:""})}
   return res}
 function build(refs,title,author,nsec){
-  const byY={};refs.forEach(r=>(byY[r.year]=byY[r.year]||[]).push(r));const ys=Object.keys(byY).map(Number).sort((a,b)=>a-b);
-  const body=ys.map(y=>`<h2 id="y${y}">${y} <span>(${byY[y].length})</span></h2><ul>`+byY[y].sort((a,b)=>a.authors.localeCompare(b.authors)).map(r=>{
-    const t=r.title.replace(/\.$/,""),s=surname(r.authors),pm="https://pubmed.ncbi.nlm.nih.gov/?term="+encodeURIComponent(`${s}[Author] AND ${y}[Date - Publication] AND ${t}`),cr="https://search.crossref.org/search/works?from_ui=yes&q="+encodeURIComponent(`${s} ${t} ${r.journal} ${y}`);
+  const byY={},jr={},sc={},ini=s=>s.normalize("NFD").replace(/[^A-Za-z]/g,"").charAt(0).toUpperCase()||"#";
+  refs.forEach(r=>{(byY[r.year]=byY[r.year]||[]).push(r);const j=r.journal||"(journal not detected)";(jr[j]=jr[j]||[]).push(r);
+    new Set(r.authors.replace(/\bet al\.?/,"").split(/,\s*|\s+&\s+|\s+and\s+/).map(a=>a.trim()).filter(a=>a.length>1&&/^[A-Za-z\u00C0-\u017F]/.test(a)&&!/^(Jr\.?|II|III)$/.test(a))).forEach(a=>(sc[a]=sc[a]||[]).push(r))});
+  const ys=Object.keys(byY).map(Number).sort((a,b)=>a-b),js=Object.keys(jr).sort((a,b)=>a.localeCompare(b)),ss=Object.keys(sc).sort((a,b)=>a.localeCompare(b)),ls=[...new Set(ss.map(ini))].sort();
+  const entry=(r,full)=>{const t=r.title.replace(/\.$/,""),s=surname(r.authors),pm="https://pubmed.ncbi.nlm.nih.gov/?term="+encodeURIComponent(`${s}[Author] AND ${r.year}[Date - Publication] AND ${t}`),cr="https://search.crossref.org/search/works?from_ui=yes&q="+encodeURIComponent(`${s} ${t} ${r.journal} ${r.year}`);
     const j=r.journal?` <i>${esc(r.journal)}</i> ${esc(r.vol)}${r.pages?", "+esc(r.pages):""}.`:"";
-    return `<li><div class="c"><b>${esc(r.authors)}</b> (${y}) ${esc(r.title)}${j}</div><div class="m">${esc([...new Set(r.sec)].join("; "))} · <a href="${pm}" target="_blank" rel="noopener">Find paper ↗</a> <a href="${cr}" target="_blank" rel="noopener">Find DOI ↗</a> <span class="bp">Book p.${r.pg}</span></div></li>`}).join("")+"</ul>").join("");
+    return `<li><div class="c"><b>${esc(r.authors)}</b> (${r.year}) ${esc(r.title)}${j}</div><div class="m">${full?esc([...new Set(r.sec)].join("; "))+" · ":""}<a href="${pm}" target="_blank" rel="noopener">Find paper ↗</a> <a href="${cr}" target="_blank" rel="noopener">Find DOI ↗</a> <span class="bp">Book p.${r.pg}</span></div></li>`};
+  const srt=a=>a.slice().sort((x,y)=>x.authors.localeCompare(y.authors)||x.year-y.year);
+  const body=ys.map(y=>`<h2 id="y${y}">${y} <span>(${byY[y].length})</span></h2><ul>`+srt(byY[y]).map(r=>entry(r,1)).join("")+"</ul>").join("");
+  const jb=`<h2 id="byjournal" class="big">By journal</h2>`+js.map((j,i)=>`<h2 id="j${i}" class="jh">${esc(j)} <span>(${jr[j].length})</span></h2><ul>`+jr[j].slice().sort((x,y)=>x.year-y.year||x.authors.localeCompare(y.authors)).map(r=>entry(r,0)).join("")+"</ul>").join("");
+  const sb=`<h2 id="byscientist" class="big">By scientist</h2>`+ls.map(L=>`<h2 id="s-${L}" class="jh">${L}</h2>`+ss.filter(n=>ini(n)==L).map(n=>`<h4 class="sn">${esc(n)} <span>(${sc[n].length})</span></h4><ul>`+sc[n].slice().sort((x,y)=>x.year-y.year).map(r=>entry(r,0)).join("")+"</ul>").join("")).join("");
   return `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${esc(title)}: Papers Cited by Year</title>
 <style>
 body{margin:0;background:#fff;color:#000;font:16px/1.55 Georgia,serif}main{max-width:820px;margin:0 auto;padding:24px 16px 70px}
-h1{font-size:1.9rem;margin:.1em 0}h2{margin:1.6em 0 .3em;border-bottom:1px solid #000;padding-bottom:4px;font-size:1.35rem}h2 span{color:#333;font-weight:400;font-size:1rem}
+h1{font-size:1.9rem;margin:.1em 0}h2{margin:1.6em 0 .3em;border-bottom:1px solid #000;padding-bottom:4px;font-size:1.35rem}h2 span,h4 span{color:#333;font-weight:400;font-size:1rem}
+h2.big{font-size:1.7rem;margin-top:2.4em}h2.jh{font-size:1.15rem;border-bottom:1px solid #999}h4.sn{margin:1em 0 0;font-size:1rem}
 .sub{margin:0 0 .8em}.note{font:14px/1.5 system-ui,sans-serif;color:#333}a{color:#0b57d0}html{scroll-behavior:smooth}
-nav{display:flex;flex-wrap:wrap;gap:4px 10px;font:14px system-ui,sans-serif;margin:8px 0}h3{font:600 13px system-ui,sans-serif;text-transform:uppercase;letter-spacing:.05em;margin:1.4em 0 0}
+nav{display:flex;flex-wrap:wrap;gap:4px 10px;font:14px system-ui,sans-serif;margin:8px 0}nav small{color:#333}h3{font:600 13px system-ui,sans-serif;text-transform:uppercase;letter-spacing:.05em;margin:1.4em 0 0}
 ul{list-style:none;padding:0;margin:0}li{padding:10px 0;border-bottom:1px dotted #ccc}.m{font:13px/1.6 system-ui,sans-serif;color:#333;margin-top:3px}.m a{margin-left:8px}.bp{margin-left:8px}
 </style></head><body><main>
-<h1>${esc(title)}</h1><p class="sub">Papers cited, indexed by publication year</p>
-<p>${author?esc(author)+": ":""}${refs.length} citations across ${ys.length} years (${ys[0]}–${ys[ys.length-1]}), from ${nsec} reference lists</p>
+<h1>${esc(title)}</h1><p class="sub">Papers cited, indexed by publication year, journal and scientist</p>
+<p>${author?esc(author)+": ":""}${refs.length} citations across ${ys.length} years (${ys[0]}–${ys[ys.length-1]}), ${js.length} journals and ${ss.length} scientists, from ${nsec} reference lists</p>
 <p class="note">"Find paper ↗" opens a PubMed search built from the first author, year and title. "Find DOI ↗" opens a Crossref lookup that shows the DOI. "Book p.N" is the PDF page where the citation appears.</p>
 <h3>Go to year</h3><nav>${ys.map(y=>`<a href="#y${y}">${y}</a>`).join("")}</nav>
-${body}
+<h3>Go to journal</h3><nav>${js.map((j,i)=>`<a href="#j${i}">${esc(j)} <small>${jr[j].length}</small></a>`).join("")}</nav>
+<h3>Go to scientist</h3><nav>${ls.map(L=>`<a href="#s-${L}">${L}</a>`).join("")}</nav>
+${body}${jb}${sb}
 </main></body></html>`}
 $("go").onclick=async()=>{
   const bar=$("bar").firstChild,st=$("st");$("go").disabled=true;$("out").hidden=true;
@@ -109,6 +118,9 @@ $("go").onclick=async()=>{
   $("go").disabled=false};
 $("cp").onclick=async()=>{try{await navigator.clipboard.writeText(HTML)}catch(e){$("code").select();document.execCommand("copy")}$("msg").textContent="Copied.";setTimeout(()=>$("msg").textContent="",2000)};
 $("dl").onclick=async()=>{const name=(($("bt").value||"citations").replace(/[^\w\- ]+/g,"").trim().replace(/\s+/g,"_")||"citations")+"_cited_papers.html";
-  try{const d=await claude.use("downloads");if(!d)throw{code:"unavailable"};await d.save({filename:name,data:HTML});$("msg").textContent="Saved."}
+  try{
+    if(window.claude){const d=await claude.use("downloads");if(!d)throw{code:"unavailable"};await d.save({filename:name,data:HTML})}
+    else{const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([HTML],{type:"text/html"}));a.download=name;a.click()}
+    $("msg").textContent="Saved."}
   catch(e){$("msg").textContent=e&&e.code=="declined"?"Download cancelled.":"Download is unavailable here. Use Copy code and save it as a .html file."}};
 </script></main></body></html>
