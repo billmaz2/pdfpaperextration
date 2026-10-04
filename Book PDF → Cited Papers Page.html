@@ -1,0 +1,114 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><title>Book PDF → Cited Papers Page</title>
+<style>
+:root{--bg:#fff;--fg:#000;--mut:#444;--bd:#ccc;--lk:#0b57d0;color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+html{scroll-padding-top:env(safe-area-inset-top,0px);background:#fff}
+body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.5 Georgia,serif}
+main{max-width:900px;margin:0 auto;padding:24px 16px 70px}
+h1{font-size:1.7rem;margin:.1em 0}h2{font-size:1.15rem;margin:1.6em 0 .4em}
+.n{font:14px/1.5 system-ui,sans-serif;color:var(--mut)}
+input,button{font:15px system-ui,sans-serif}input[type=text]{padding:8px;border:1px solid var(--bd);border-radius:6px;width:100%;box-sizing:border-box}
+button{background:var(--lk);color:#fff;border:0;border-radius:6px;padding:9px 16px;cursor:pointer;margin:4px 8px 4px 0}button:disabled{opacity:.4}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:12px 0}@media(max-width:560px){.row{grid-template-columns:1fr}}
+label{font:13px system-ui,sans-serif;color:var(--mut);display:block;margin-bottom:3px}
+#bar{height:8px;background:#eee;border-radius:4px;overflow:hidden;margin:10px 0}#bar i{display:block;height:100%;width:0;background:var(--lk)}
+textarea{width:100%;height:320px;box-sizing:border-box;font:12px/1.4 ui-monospace,Menlo,monospace;border:1px solid var(--bd);border-radius:6px;padding:8px;background:#fafafa;color:#000}
+iframe{width:100%;height:420px;border:1px solid var(--bd);border-radius:6px}
+</style></head><body><main>
+<h1>Book PDF → cited papers page</h1>
+<p class="n">Choose a book PDF. The page finds the reference lists (Further Reading, References, Bibliography…), pulls out each journal citation with its year, and builds an HTML page grouped by year, with PubMed and DOI search links. It runs in your browser and the PDF is not uploaded anywhere.</p>
+<div class="row"><div><label>Book title (optional)</label><input type="text" id="bt"></div><div><label>Author (optional)</label><input type="text" id="ba"></div></div>
+<input type="file" id="f" accept="application/pdf"> <button id="go" disabled>Extract citations</button>
+<div id="bar"><i></i></div><div class="n" id="st">Waiting for a PDF.</div>
+<div id="out" hidden>
+<h2>Download</h2><button id="dl">Download page</button><button id="cp">Copy code</button><span class="n" id="msg"></span>
+<h2>Code</h2><textarea id="code" readonly spellcheck="false"></textarea>
+<h2>Preview</h2><iframe id="pv" sandbox="allow-popups allow-popups-to-escape-sandbox" title="Preview"></iframe>
+</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script>
+const $=i=>document.getElementById(i),esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const HDR=/^(FURTHER READING|SUGGESTED READING|SELECTED REFERENCES|REFERENCES|BIBLIOGRAPHY|LITERATURE CITED|WORKS CITED|CITED LITERATURE|NOTES AND REFERENCES)\s*:?$/i;
+const SUB=/^(Books and reviews|Primary research papers|Reviews|Books|Primary literature|Further reading|References)\s*$/i;
+const YR=/\((?:1[5-9]|20)\d\d[a-z]?\)|\b(?:1[89]|20)\d\d[a-z]?;\s*\d+/g;
+const norm=s=>s.toLowerCase().replace(/[^a-z0-9]/g,"");
+let file=null,pdf=null,HTML="";
+pdfjsLib.GlobalWorkerOptions.workerSrc="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+$("f").onchange=e=>{file=e.target.files[0];$("go").disabled=!file;if(file){$("st").textContent=file.name;$("bt").value||($("bt").value=file.name.replace(/\.pdf$/i,"").replace(/[_-]+/g," ").replace(/\(?z-?lib.*$/i,"").trim())}};
+function pageLines(items,w){
+  items=items.filter(t=>t.str.trim()).map(t=>({s:t.str,x:t.transform[4],y:t.transform[5],w:t.width}));
+  let two=false;if(items.length>30){const m=w/2,span=items.filter(t=>t.x<m-5&&t.x+t.w>m+5).length,L=items.filter(t=>t.x<m-5).length,R=items.filter(t=>t.x>=m-5).length;two=span<items.length*.1&&L>items.length*.2&&R>items.length*.2}
+  const cols=two?[items.filter(t=>t.x<w/2-5),items.filter(t=>t.x>=w/2-5)]:[items],out=[];
+  for(const c of cols){c.sort((a,b)=>b.y-a.y||a.x-b.x);let cur=[],y=null;
+    for(const t of c){if(y!==null&&Math.abs(t.y-y)>3){out.push(cur.sort((a,b)=>a.x-b.x).map(z=>z.s).join(" ").replace(/\s+/g," ").trim());cur=[]}y=t.y;cur.push(t)}
+    if(cur.length)out.push(cur.sort((a,b)=>a.x-b.x).map(z=>z.s).join(" ").replace(/\s+/g," ").trim())}
+  return out.filter(Boolean)}
+const nyr=t=>(t.match(YR)||[]).length;
+function surname(a){let f=a.split(/,| & | and /)[0].replace(/\bet al\.?/,"").trim().split(/\s+/);
+  if(f.length>1&&/^([A-Z]{1,4}|Jr\.?)$/.test(f[f.length-1]))f.pop();if(f.length>1&&/^[A-Z]{1,4}$/.test(f[f.length-1]))f.pop();return f.join(" ")}
+function parseSection(text){
+  const T=/(?:\b\d+[A-Za-z]?(?:\(\d+\))?\s*[:,]\s*[A-Za-z]{0,2}\d+(?:\s*[–\-]\s*[A-Za-z]{0,2}\d+)?|\b(?:1[5-9]|20)\d\d[a-z]?;\s*\d+(?:\(\d+\))?:\s*\d+(?:[–\-]\d+)?)\.?(?=\s|$)/g;
+  const res=[];let pos=0,m;
+  while((m=T.exec(text))){const seg=text.slice(pos,m.index+m[0].length).trim();pos=m.index+m[0].length;
+    const ys=[...seg.matchAll(/\(((?:1[5-9]|20)\d\d)[a-z]?\)|\b((?:1[89]|20)\d\d)[a-z]?(?=[;.,])/g)];if(!ys.length)continue;
+    const y=ys[ys.length-1],year=+(y[1]||y[2]),pre=seg.slice(0,y.index).trim();let cut=0,b;const B=/(?<!\b[A-Z]|\bal)\.\s+(?=[A-Z])/g;
+    while((b=B.exec(pre)))cut=b.index+b[0].length;
+    const authors=pre.slice(cut).replace(/[,.\s]+$/,"").trim(),rest=seg.slice(y.index+y[0].length).replace(/^[.\s]+/,"").trim();
+    if(!authors||authors.length>300)continue;
+    const mm=rest.match(/^(.*[.?!])\s+(.+?)[,\s]+(\d+[A-Za-z]?(?:\(\d+\))?)\s*[:,]\s*(\S+?)\.?$/)||rest.match(/^(.*[.?!])\s+(.+?)[.\s]+\d{4};\s*(\d+(?:\(\d+\))?):\s*(\S+?)\.?$/);
+    res.push(mm?{authors,year,title:mm[1].trim(),journal:mm[2].trim(),vol:mm[3],pages:mm[4]}:{authors,year,title:rest.replace(/\.$/,"")+".",journal:"",vol:"",pages:""})}
+  return res}
+function build(refs,title,author,nsec){
+  const byY={};refs.forEach(r=>(byY[r.year]=byY[r.year]||[]).push(r));const ys=Object.keys(byY).map(Number).sort((a,b)=>a-b);
+  const body=ys.map(y=>`<h2 id="y${y}">${y} <span>(${byY[y].length})</span></h2><ul>`+byY[y].sort((a,b)=>a.authors.localeCompare(b.authors)).map(r=>{
+    const t=r.title.replace(/\.$/,""),s=surname(r.authors),pm="https://pubmed.ncbi.nlm.nih.gov/?term="+encodeURIComponent(`${s}[Author] AND ${y}[Date - Publication] AND ${t}`),cr="https://search.crossref.org/search/works?from_ui=yes&q="+encodeURIComponent(`${s} ${t} ${r.journal} ${y}`);
+    const j=r.journal?` <i>${esc(r.journal)}</i> ${esc(r.vol)}${r.pages?", "+esc(r.pages):""}.`:"";
+    return `<li><div class="c"><b>${esc(r.authors)}</b> (${y}) ${esc(r.title)}${j}</div><div class="m">${esc([...new Set(r.sec)].join("; "))} · <a href="${pm}" target="_blank" rel="noopener">Find paper ↗</a> <a href="${cr}" target="_blank" rel="noopener">Find DOI ↗</a> <span class="bp">Book p.${r.pg}</span></div></li>`}).join("")+"</ul>").join("");
+  return `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${esc(title)}: Papers Cited by Year</title>
+<style>
+body{margin:0;background:#fff;color:#000;font:16px/1.55 Georgia,serif}main{max-width:820px;margin:0 auto;padding:24px 16px 70px}
+h1{font-size:1.9rem;margin:.1em 0}h2{margin:1.6em 0 .3em;border-bottom:1px solid #000;padding-bottom:4px;font-size:1.35rem}h2 span{color:#333;font-weight:400;font-size:1rem}
+.sub{margin:0 0 .8em}.note{font:14px/1.5 system-ui,sans-serif;color:#333}a{color:#0b57d0}html{scroll-behavior:smooth}
+nav{display:flex;flex-wrap:wrap;gap:4px 10px;font:14px system-ui,sans-serif;margin:8px 0}h3{font:600 13px system-ui,sans-serif;text-transform:uppercase;letter-spacing:.05em;margin:1.4em 0 0}
+ul{list-style:none;padding:0;margin:0}li{padding:10px 0;border-bottom:1px dotted #ccc}.m{font:13px/1.6 system-ui,sans-serif;color:#333;margin-top:3px}.m a{margin-left:8px}.bp{margin-left:8px}
+</style></head><body><main>
+<h1>${esc(title)}</h1><p class="sub">Papers cited, indexed by publication year</p>
+<p>${author?esc(author)+": ":""}${refs.length} citations across ${ys.length} years (${ys[0]}–${ys[ys.length-1]}), from ${nsec} reference lists</p>
+<p class="note">"Find paper ↗" opens a PubMed search built from the first author, year and title. "Find DOI ↗" opens a Crossref lookup that shows the DOI. "Book p.N" is the PDF page where the citation appears.</p>
+<h3>Go to year</h3><nav>${ys.map(y=>`<a href="#y${y}">${y}</a>`).join("")}</nav>
+${body}
+</main></body></html>`}
+$("go").onclick=async()=>{
+  const bar=$("bar").firstChild,st=$("st");$("go").disabled=true;$("out").hidden=true;
+  try{
+    pdf=await pdfjsLib.getDocument({data:await file.arrayBuffer()}).promise;const N=pdf.numPages,pages=[];
+    for(let p=1;p<=N;p++){const pg=await pdf.getPage(p),vp=pg.getViewport({scale:1}),tc=await pg.getTextContent();pages.push(pageLines(tc.items,vp.width));
+      if(p%5==0||p==N){bar.style.width=(p/N*85)+"%";st.textContent=`Reading page ${p} of ${N}…`;await new Promise(r=>setTimeout(r))}}
+    const cnt={};pages.forEach(l=>{new Set([...l.slice(0,2),...l.slice(-2)]).forEach(x=>{const k=x.replace(/\d+/g,"#");cnt[k]=(cnt[k]||0)+1})});
+    const clean=pages.map(l=>l.filter(x=>!/^\d{1,4}$/.test(x)&&!SUB.test(x)&&!(cnt[x.replace(/\d+/g,"#")]>=6&&x.length<90)));
+    st.textContent="Finding reference lists…";const secs=[];
+    for(let p=0;p<N;p++){const hi=pages[p].findIndex(x=>HDR.test(x));if(hi<0)continue;
+      if(secs.length&&p<=secs[secs.length-1].end)continue;
+      const first=clean[p].slice(clean[p].findIndex(x=>HDR.test(x))+1).join(" ");if(nyr(first)<3)continue;
+      let e=p,txt=[first];while(e+1<N&&nyr(clean[e+1].join(" "))>=3&&!(pages[e+1].some(x=>HDR.test(x))&&e+1!==p)){e++;txt.push(clean[e].join(" "))}
+      let label="Reference list "+(secs.length+1);
+      for(let q=p;q>=Math.max(0,p-150);q--){const h=pages[q].slice(0,8),i=h.findIndex(x=>/^chapter\s+\d+\b/i.test(x));
+        if(i>=0){const m=h[i].match(/^chapter\s+(\d+)\s*[:.\-–|]?\s*(.*)$/i),t=m[2]||h.slice(i+1).find(x=>!/^\d+$/.test(x))||"";label=`Ch. ${m[1]}${t?": "+t:""}`;break}}
+      secs.push({start:p,end:e,label,text:txt.join(" ").replace(/(\w)- (?=[a-z])/g,"$1").replace(/\s+/g," ")})}
+    if(!secs.length)throw new Error("No reference lists found. The PDF may be scanned images (no text layer) or use another heading.");
+    st.textContent="Parsing citations…";bar.style.width="92%";
+    const pn=pages.map(l=>norm(l.join(" "))),seen={},refs=[];
+    for(const s of secs)for(const r of parseSection(s.text)){const k=norm(r.title)+r.year;
+      if(seen[k]){seen[k].sec.push(s.label);continue}
+      const key=norm(r.title).slice(0,30);let pg=s.start;for(let q=s.start;q<=s.end;q++)if(pn[q].includes(key)){pg=q;break}
+      r.sec=[s.label];r.pg=pg+1;seen[k]=r;refs.push(r)}
+    if(!refs.length)throw new Error("Reference lists were found but no citations could be parsed.");
+    HTML=build(refs,$("bt").value||"Book",$("ba").value,secs.length);
+    $("code").value=HTML;$("pv").srcdoc=HTML;$("out").hidden=false;bar.style.width="100%";
+    st.textContent=`Done: ${refs.length} citations from ${secs.length} reference lists. Check the preview, then download.`;
+  }catch(err){st.textContent="Error: "+err.message;bar.style.width="0"}
+  $("go").disabled=false};
+$("cp").onclick=async()=>{try{await navigator.clipboard.writeText(HTML)}catch(e){$("code").select();document.execCommand("copy")}$("msg").textContent="Copied.";setTimeout(()=>$("msg").textContent="",2000)};
+$("dl").onclick=async()=>{const name=(($("bt").value||"citations").replace(/[^\w\- ]+/g,"").trim().replace(/\s+/g,"_")||"citations")+"_cited_papers.html";
+  try{const d=await claude.use("downloads");if(!d)throw{code:"unavailable"};await d.save({filename:name,data:HTML});$("msg").textContent="Saved."}
+  catch(e){$("msg").textContent=e&&e.code=="declined"?"Download cancelled.":"Download is unavailable here. Use Copy code and save it as a .html file."}};
+</script></main></body></html>
