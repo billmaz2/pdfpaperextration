@@ -12,17 +12,19 @@ button{background:var(--lk);color:#fff;border:0;border-radius:6px;padding:9px 16
 label{font:13px system-ui,sans-serif;color:var(--mut);display:block;margin-bottom:3px}
 #bar{height:8px;background:#eee;border-radius:4px;overflow:hidden;margin:10px 0}#bar i{display:block;height:100%;width:0;background:var(--lk)}
 textarea{width:100%;height:320px;box-sizing:border-box;font:12px/1.4 ui-monospace,Menlo,monospace;border:1px solid var(--bd);border-radius:6px;padding:8px;background:#fafafa;color:#000}
-iframe{width:100%;height:420px;border:1px solid var(--bd);border-radius:6px}
+.row3{display:flex;gap:22px;flex-wrap:wrap;margin:12px 0}input[type=color]{width:64px;height:36px;padding:0;border:1px solid var(--bd);border-radius:6px;background:none;cursor:pointer}
+iframe{width:100%;height:600px;border:1px solid var(--bd);border-radius:6px}
 </style></head><body><main>
 <h1>Book PDF → cited papers page</h1>
 <p class="n">Choose a book PDF. The page finds the reference lists (Further Reading, References, Bibliography…), pulls out each journal citation with its year, and builds an HTML page grouped by year, with PubMed and DOI search links. It runs in your browser and the PDF is not uploaded anywhere.</p>
 <div class="row"><div><label>Book title (optional)</label><input type="text" id="bt"></div><div><label>Author (optional)</label><input type="text" id="ba"></div></div>
+<div class="row3"><div><label>Background color</label><input type="color" id="cb" value="#ffffff"></div><div><label>Letters color</label><input type="color" id="cf" value="#000000"></div><div><label>Link color</label><input type="color" id="cl" value="#0b57d0"></div></div>
 <input type="file" id="f" accept="application/pdf"> <button id="go" disabled>Extract citations</button>
 <div id="bar"><i></i></div><div class="n" id="st">Waiting for a PDF.</div>
 <div id="out" hidden>
 <h2>Download</h2><button id="dl">Download page</button><button id="cp">Copy code</button><span class="n" id="msg"></span>
 <h2>Code</h2><textarea id="code" readonly spellcheck="false"></textarea>
-<h2>Preview</h2><iframe id="pv" sandbox="allow-popups allow-popups-to-escape-sandbox" title="Preview"></iframe>
+<h2>Preview</h2><iframe id="pv" sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox" title="Preview"></iframe>
 </div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script>
@@ -31,7 +33,10 @@ const HDR=/^(FURTHER READING|SUGGESTED READING|SELECTED REFERENCES|REFERENCES|BI
 const SUB=/^(Books and reviews|Primary research papers|Reviews|Books|Primary literature|Further reading|References)\s*$/i;
 const YR=/\((?:1[5-9]|20)\d\d[a-z]?\)|\b(?:1[89]|20)\d\d[a-z]?;\s*\d+/g;
 const norm=s=>s.toLowerCase().replace(/[^a-z0-9]/g,"");
-let file=null,pdf=null,HTML="";
+let file=null,pdf=null,HTML="",R=null,NS=0;
+const PV='<script>document.addEventListener("click",function(e){var a=e.target.closest("a[href^=\'#\']");if(a){e.preventDefault();var t=document.getElementById(a.getAttribute("href").slice(1));if(t)t.scrollIntoView()}})<\/script>';
+function render(){HTML=build(R,$("bt").value||"Book",$("ba").value,NS,{bg:$("cb").value,fg:$("cf").value,lk:$("cl").value});$("code").value=HTML;$("pv").srcdoc=HTML.replace("</body>",PV+"</body>")}
+["cb","cf","cl","bt","ba"].forEach(i=>$(i).addEventListener("input",()=>R&&render()));
 pdfjsLib.GlobalWorkerOptions.workerSrc="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
 $("f").onchange=e=>{file=e.target.files[0];$("go").disabled=!file;if(file){$("st").textContent=file.name;$("bt").value||($("bt").value=file.name.replace(/\.pdf$/i,"").replace(/[_-]+/g," ").replace(/\(?z-?lib.*$/i,"").trim())}};
 function pageLines(items,w){
@@ -57,7 +62,7 @@ function parseSection(text){
     const mm=rest.match(/^(.*[.?!])\s+(.+?)[,\s]+(\d+[A-Za-z]?(?:\(\d+\))?)\s*[:,]\s*(\S+?)\.?$/)||rest.match(/^(.*[.?!])\s+(.+?)[.\s]+\d{4};\s*(\d+(?:\(\d+\))?):\s*(\S+?)\.?$/);
     res.push(mm?{authors,year,title:mm[1].trim(),journal:mm[2].trim(),vol:mm[3],pages:mm[4]}:{authors,year,title:rest.replace(/\.$/,"")+".",journal:"",vol:"",pages:""})}
   return res}
-function build(refs,title,author,nsec){
+function build(refs,title,author,nsec,col){
   const byY={},jr={},sc={},ini=s=>s.normalize("NFD").replace(/[^A-Za-z]/g,"").charAt(0).toUpperCase()||"#";
   refs.forEach(r=>{(byY[r.year]=byY[r.year]||[]).push(r);const j=r.journal||"(journal not detected)";(jr[j]=jr[j]||[]).push(r);
     new Set(r.authors.replace(/\bet al\.?/,"").split(/,\s*|\s+&\s+|\s+and\s+/).map(a=>a.trim()).filter(a=>a.length>1&&/^[A-Za-z\u00C0-\u017F]/.test(a)&&!/^(Jr\.?|II|III)$/.test(a))).forEach(a=>(sc[a]=sc[a]||[]).push(r))});
@@ -71,12 +76,13 @@ function build(refs,title,author,nsec){
   const sb=`<h2 id="byscientist" class="big">By scientist</h2>`+ls.map(L=>`<h2 id="s-${L}" class="jh">${L}</h2>`+ss.filter(n=>ini(n)==L).map(n=>`<h4 class="sn">${esc(n)} <span>(${sc[n].length})</span></h4><ul>`+sc[n].slice().sort((x,y)=>x.year-y.year).map(r=>entry(r,0)).join("")+"</ul>").join("")).join("");
   return `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${esc(title)}: Papers Cited by Year</title>
 <style>
-body{margin:0;background:#fff;color:#000;font:16px/1.55 Georgia,serif}main{max-width:820px;margin:0 auto;padding:24px 16px 70px}
-h1{font-size:1.9rem;margin:.1em 0}h2{margin:1.6em 0 .3em;border-bottom:1px solid #000;padding-bottom:4px;font-size:1.35rem}h2 span,h4 span{color:#333;font-weight:400;font-size:1rem}
-h2.big{font-size:1.7rem;margin-top:2.4em}h2.jh{font-size:1.15rem;border-bottom:1px solid #999}h4.sn{margin:1em 0 0;font-size:1rem}
-.sub{margin:0 0 .8em}.note{font:14px/1.5 system-ui,sans-serif;color:#333}a{color:#0b57d0}html{scroll-behavior:smooth}
-nav{display:flex;flex-wrap:wrap;gap:4px 10px;font:14px system-ui,sans-serif;margin:8px 0}nav small{color:#333}h3{font:600 13px system-ui,sans-serif;text-transform:uppercase;letter-spacing:.05em;margin:1.4em 0 0}
-ul{list-style:none;padding:0;margin:0}li{padding:10px 0;border-bottom:1px dotted #ccc}.m{font:13px/1.6 system-ui,sans-serif;color:#333;margin-top:3px}.m a{margin-left:8px}.bp{margin-left:8px}
+:root{--bg:${col.bg};--fg:${col.fg};--lk:${col.lk}}
+body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.55 Georgia,serif}main{max-width:820px;margin:0 auto;padding:24px 16px 70px}
+h1{font-size:1.9rem;margin:.1em 0}h2{margin:1.6em 0 .3em;border-bottom:1px solid var(--fg);padding-bottom:4px;font-size:1.35rem}h2 span,h4 span,nav small,.note,.m{opacity:.75}h2 span,h4 span{font-weight:400;font-size:1rem}
+h2.big{font-size:1.7rem;margin-top:2.4em}h2.jh{font-size:1.15rem;border-bottom-color:color-mix(in srgb,var(--fg) 50%,var(--bg))}h4.sn{margin:1em 0 0;font-size:1rem}
+.sub{margin:0 0 .8em}.note{font:14px/1.5 system-ui,sans-serif}a{color:var(--lk)}html{scroll-behavior:smooth}
+nav{display:flex;flex-wrap:wrap;gap:4px 10px;font:14px system-ui,sans-serif;margin:8px 0}h3{font:600 13px system-ui,sans-serif;text-transform:uppercase;letter-spacing:.05em;margin:1.4em 0 0}
+ul{list-style:none;padding:0;margin:0}li{padding:10px 0;border-bottom:1px dotted color-mix(in srgb,var(--fg) 30%,var(--bg))}.m{font:13px/1.6 system-ui,sans-serif;margin-top:3px}.m a{margin-left:8px}.bp{margin-left:8px}
 </style></head><body><main>
 <h1>${esc(title)}</h1><p class="sub">Papers cited, indexed by publication year, journal and scientist</p>
 <p>${author?esc(author)+": ":""}${refs.length} citations across ${ys.length} years (${ys[0]}–${ys[ys.length-1]}), ${js.length} journals and ${ss.length} scientists, from ${nsec} reference lists</p>
@@ -111,8 +117,7 @@ $("go").onclick=async()=>{
       const key=norm(r.title).slice(0,30);let pg=s.start;for(let q=s.start;q<=s.end;q++)if(pn[q].includes(key)){pg=q;break}
       r.sec=[s.label];r.pg=pg+1;seen[k]=r;refs.push(r)}
     if(!refs.length)throw new Error("Reference lists were found but no citations could be parsed.");
-    HTML=build(refs,$("bt").value||"Book",$("ba").value,secs.length);
-    $("code").value=HTML;$("pv").srcdoc=HTML;$("out").hidden=false;bar.style.width="100%";
+    R=refs;NS=secs.length;render();$("out").hidden=false;bar.style.width="100%";
     st.textContent=`Done: ${refs.length} citations from ${secs.length} reference lists. Check the preview, then download.`;
   }catch(err){st.textContent="Error: "+err.message;bar.style.width="0"}
   $("go").disabled=false};
